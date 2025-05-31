@@ -15,7 +15,7 @@ blacklist = ["greenwork32","globalnetwork22"]  #bots accounts username list
 BASE_URL = "https://node.deso.org"
 
 seed_phrase_or_hex="" #dont share this
-NOTIFICATION_UPDATE_INTERVEL = 30 #in seconds
+NOTIFICATION_UPDATE_INTERVEL = 90 #in seconds
 
 api_url = BASE_URL+"/api/v0/"
 prof_resp="PublicKeyToProfileEntryResponse"
@@ -170,7 +170,9 @@ def check_comment(transactor,postId,parent_post_list,comment,get_single_post,dat
                                     modified_text = post_body.replace("@", "(@)")
                                     print("Posting")
                                     create_post(modified_text,postId)
+                                    
                                 parent_post_list[transactor][postId]["Comments"].append(comment["PostHashHex"])
+                                save_to_json(parent_post_list,"parentPostList.json")
                                 data_save = True
                             print(f"[{comment_level}]Comment:")
                             
@@ -284,6 +286,7 @@ def notificationListener():
                         #pprint(comment)
                 if data_save:
                     save_to_json(parent_post_list,"parentPostList.json")
+            print("End")
 
 
             for _ in range(NOTIFICATION_UPDATE_INTERVEL):
