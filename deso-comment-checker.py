@@ -245,7 +245,12 @@ def notificationListener():
                                     print(f"username{username}")
                                     print(f"transactor{transactor}")
                                     print(f"body{body}") 
-                                    status=parse_state(body)["value"]
+                                    status_res=parse_state(body)
+                                    if status_res is None:
+                                        status=None
+                                    else:
+                                        status=status_res["value"]
+
                                     print(f"Status:{status}")
 
                                     parent_post = [{"test":1}]
@@ -302,11 +307,13 @@ def notificationListener():
                                                 print(e)
                                         elif status=="info":
                                             try:
+                                                link_count=0
                                                 print("------info thread notification------")
                                                 reply_body="Registered Posts Threads\n\n"
                                                 if transactor in parent_post_list:
                                                     for mentioned_posts in parent_post_list[transactor]:
-                                                        reply_body += "https://diamondapp.com/posts/"+str(parent_post_list[transactor][mentioned_posts]["ParentPostHashHex"])+"\n"
+                                                        link_count += 1
+                                                        reply_body += "["+str(link_count)+"] https://diamondapp.com/posts/"+str(parent_post_list[transactor][mentioned_posts]["ParentPostHashHex"])+"\n"
                                                 create_post(reply_body,postId)        
                                                 
                                             except Exception as e:
@@ -329,7 +336,9 @@ def notificationListener():
                     posts_scan += len(parent_post_list[users][mentioned_post]["Comments"])
                 
             print(f"Number of users registered:{users_count}")
+            print(f"Number of Threads added:{threads}")
             print(f"Number of comments to scan:{posts_scan}")
+            
     
             counter +=1
 
