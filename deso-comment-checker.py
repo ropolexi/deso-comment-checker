@@ -15,7 +15,7 @@ blacklist = ["greenwork32","globalnetwork22"]  #bots accounts username list
 BASE_URL = "https://node.deso.org"
 
 seed_phrase_or_hex="" #dont share this
-NOTIFICATION_UPDATE_INTERVEL = 90 #in seconds
+NOTIFICATION_UPDATE_INTERVEL = 30 #in seconds
 
 api_url = BASE_URL+"/api/v0/"
 prof_resp="PublicKeyToProfileEntryResponse"
@@ -179,6 +179,7 @@ def check_comment(transactor,postId,parent_post_list,comment,get_single_post,dat
                             check_comment(transactor,postId,parent_post_list,comment,get_single_post,data_save,comment_level,notify)
 
 def notificationListener():
+    counter=0
     profile=get_single_profile("",bot_public_key)
     post_id_list=[]
     parent_post_list={}
@@ -271,22 +272,25 @@ def notificationListener():
                                     break
                 if currentIndex<=lastIndex:
                     break
-            
+                
+            counter +=1
 
-            for transactor,userdata in parent_post_list.items():
-                data_save = False
-                comment_level=0
-                print(transactor)
-                for postId,data in userdata.items():
-                    single_post_details=get_single_post(data["ParentPostHashHex"], transactor)
-                    parent_post_list[transactor][postId]["Comments"]=parent_post_list[transactor][postId].get("Comments",[])
-                    check_comment(transactor,postId,parent_post_list,single_post_details,get_single_post,data_save,comment_level,notify=True)
-                            
+            if counter>3:
+                counter=0
+                for transactor,userdata in parent_post_list.items():
+                    data_save = False
+                    comment_level=0
+                    print(transactor)
+                    for postId,data in userdata.items():
+                        single_post_details=get_single_post(data["ParentPostHashHex"], transactor)
+                        parent_post_list[transactor][postId]["Comments"]=parent_post_list[transactor][postId].get("Comments",[])
+                        check_comment(transactor,postId,parent_post_list,single_post_details,get_single_post,data_save,comment_level,notify=True)
+                                
 
-                        #pprint(comment)
-                if data_save:
-                    save_to_json(parent_post_list,"parentPostList.json")
-            print("End")
+                            #pprint(comment)
+                    if data_save:
+                        save_to_json(parent_post_list,"parentPostList.json")
+                print("End")
 
 
             for _ in range(NOTIFICATION_UPDATE_INTERVEL):
