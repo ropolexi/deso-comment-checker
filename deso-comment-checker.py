@@ -141,14 +141,31 @@ def load_from_json(filename):
     return None
 
 def parse_state(paragraph):
-    paragraph = paragraph.lower()  # make case-insensitive
+    pattern = r'@commentchecker\s+(on|off(?:\s+all)?|info)\b'
 
-    if re.search(r'\b(on|enable|1)\b', paragraph):
-        return 1
-    elif re.search(r'\b(off|disable|0)\b', paragraph):
-        return 0
-    else:
-        return None
+    # Value mapping
+    value_map = {
+        'on': 'on',
+        'off': 'off',
+        'off all': 'off_all',
+        'info': 'info'
+    }
+
+    # Search only for the first match
+    match = re.search(pattern, paragraph, re.IGNORECASE)
+
+    result = None
+
+    if match:
+        full_command = match.group(0)
+        param = match.group(1).lower()
+        param = 'off all' if param.startswith('off') and 'all' in param else param  # normalize
+        value = value_map.get(param)
+        result = {'command': full_command, 'value': value}
+
+    # Output result
+    print(result)
+    return result
     
 def check_comment(transactor,postId,parent_post_list,comment,get_single_post,data_save,comment_level,notify=False):
                 if comment["CommentCount"]>0:
@@ -228,7 +245,7 @@ def notificationListener():
                                     print(f"username{username}")
                                     print(f"transactor{transactor}")
                                     print(f"body{body}") 
-                                    status=parse_state(body)
+                                    status=parse_state(body)["value"]
                                     print(f"Status:{status}")
 
                                     parent_post = [{"test":1}]
@@ -241,38 +258,79 @@ def notificationListener():
                                             parent_post_id = parent_post[0]["PostHashHex"]
                                         
                                     print(parent_post_id)
-                                    
-                                    
+                                    if status is None:
+                                        status = "on"
 
-                                    parent_post_list[transactor] = parent_post_list.get(transactor,{})
-                                    
-                                    if status==1:
-                                        parent_post_list[transactor][postId] = parent_post_list[transactor].get(postId,{})
-                                        print("------Adding thread notification------")
-                                        parent_post_list[transactor][postId]["ParentPostHashHex"] = parent_post_id
-                                        single_post_details=get_single_post(parent_post_id, transactor)
-                                        parent_post_list[transactor][postId]["Comments"]=parent_post_list[transactor][postId].get("Comments",[]) 
-                                        data_save = False
-                                        comment_level=0
-                                        check_comment(transactor,postId,parent_post_list,single_post_details,get_single_post,data_save,comment_level,notify=False)  
-                                    else:
-                                        try:
-                                            for id in parent_post_list[transactor]:
-                                                if(parent_post_list[transactor][id]["ParentPostHashHex"]==parent_post_id):
-                                                    print("------Deleting thread notification------")
-                                                    del parent_post_list[transactor][id]
-                                                    break
-                                        except KeyError:
-                                            pass
-                                        #print(parent_post_list)
+                                    if status is not None:
+                                        if status=="on":
+                                            #check if exsists first from another mention by same user
+                                            present=False
+                                            if transactor in parent_post_list:
+                                                for mentioned_post in parent_post_list[transactor]:
+                                                    if parent_post_list[transactor][mentioned_post]["ParentPostHashHex"]==parent_post_id:
+                                                        present=True
+                                            if not present:
+                                                parent_post_list[transactor] = parent_post_list.get(transactor,{})
+                                                parent_post_list[transactor][postId] = parent_post_list[transactor].get(postId,{})
+                                                print("------Adding thread notification------")
+                                                parent_post_list[transactor][postId]["ParentPostHashHex"] = parent_post_id
+                                                single_post_details=get_single_post(parent_post_id, transactor)
+                                                parent_post_list[transactor][postId]["Comments"]=parent_post_list[transactor][postId].get("Comments",[]) 
+                                                data_save = False
+                                                comment_level=0
+                                                check_comment(transactor,postId,parent_post_list,single_post_details,get_single_post,data_save,comment_level,notify=False)  
+                                        elif status=="off":
+                                            try:
+                                                for id in parent_post_list[transactor]:
+                                                    if(parent_post_list[transactor][id]["ParentPostHashHex"]==parent_post_id):
+                                                        print("------Deleting thread notification------")
+                                                        del parent_post_list[transactor][id]
+                                                        create_post("Deleted this post thread notification",postId) 
+                                                        break
+                                            except Exception as e:
+                                                print("Error deleting")
+                                                print(e)
+                                            #print(parent_post_list)
+                                        elif status=="off_all":
+                                            try:
+                                                print("------Deleting all thread notification------")
+                                                del parent_post_list[transactor]
+                                                create_post("Deleted all posts threads notification",postId) 
+                                                
+                                            except Exception as e:
+                                                print("Error deleting")
+                                                print(e)
+                                        elif status=="info":
+                                            try:
+                                                print("------info thread notification------")
+                                                reply_body="Registered Posts Threads\n\n"
+                                                if transactor in parent_post_list:
+                                                    for mentioned_posts in parent_post_list[transactor]:
+                                                        reply_body += "https://diamondapp.com/posts/"+str(parent_post_list[transactor][mentioned_posts]["ParentPostHashHex"])+"\n"
+                                                create_post(reply_body,postId)        
+                                                
+                                            except Exception as e:
+                                                print("Error deleting")
+                                                print(e)
 
                                     save_to_json({"post_ids":post_id_list},"postIdList_thread.json")
                                     save_to_json(parent_post_list,"parentPostList.json")
-
+                                   
                                     break
                 if currentIndex<=lastIndex:
                     break
+
+            users_count=len(parent_post_list)
+            posts_scan=0
+            threads=0
+            for users in parent_post_list:
+                threads += len(parent_post_list[users])
+                for mentioned_post in parent_post_list[users]:
+                    posts_scan += len(parent_post_list[users][mentioned_post]["Comments"])
                 
+            print(f"Number of users registered:{users_count}")
+            print(f"Number of comments to scan:{posts_scan}")
+    
             counter +=1
 
             if counter>3:
