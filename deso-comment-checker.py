@@ -182,7 +182,9 @@ def check_comment(transactor,postId,parent_post_list,comment,get_single_post,dat
                                 username = comment["ProfileEntryResponse"]["Username"]
                                 if username!=bot_username and notify:  #avoid same bot comment notification infinit loop
                                     parent_post_link = parent_post_list[transactor][postId]["ParentPostHashHex"]
-                                    post_body=f"{username} commented on this thread:\nhttps://diamondapp.com/posts/{parent_post_link}\n\nContent:\n{body}\n\nComment:\nhttps://diamondapp.com/posts/{comment_id}"
+                                    p=get_single_post(parent_post_link, transactor)
+                                    thread_owner = p["ProfileEntryResponse"]["Username"]
+                                    post_body=f"{username} commented on {thread_owner}'s thread:\nhttps://diamondapp.com/posts/{parent_post_link}\n\nContent:\n{body}\n\nComment:\nhttps://diamondapp.com/posts/{comment_id}"
                                     print(post_body)
                                     modified_text = post_body.replace("@", "(@)")
                                     print("Posting")
@@ -309,11 +311,16 @@ def notificationListener():
                                             try:
                                                 link_count=0
                                                 print("------info thread notification------")
-                                                reply_body="Registered Posts Threads\n\n"
+                                                reply_body=username+" Registered Posts Threads\n\n"
                                                 if transactor in parent_post_list:
+                                                    
                                                     for mentioned_posts in parent_post_list[transactor]:
+                                                        r = get_single_post(parent_post_list[transactor][mentioned_posts]["ParentPostHashHex"], transactor)
+                                                        thread_owner = r["ProfileEntryResponse"]["Username"]
                                                         link_count += 1
-                                                        reply_body += "["+str(link_count)+"] https://diamondapp.com/posts/"+str(parent_post_list[transactor][mentioned_posts]["ParentPostHashHex"])+"\n"
+                                                        reply_body += "["+str(link_count)+"] "+thread_owner+"\nhttps://diamondapp.com/posts/"+str(parent_post_list[transactor][mentioned_posts]["ParentPostHashHex"])+"\n"
+                                                        
+                                                    print(reply_body)
                                                 create_post(reply_body,postId)        
                                                 
                                             except Exception as e:
