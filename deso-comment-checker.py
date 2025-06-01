@@ -117,7 +117,7 @@ def create_post(body,parent_post_hash_hex):
         print('Signing and submitting txn...')
         submitted_txn_response = client.sign_and_submit_txn(post_response)
         txn_hash = submitted_txn_response['TxnHashHex']
-        #client.wait_for_commitment_with_timeout(txn_hash, 30.0)
+        
         print('SUCCESS!')
         return 1
     except Exception as e:
@@ -394,6 +394,11 @@ def notificationListener():
             
     
             counter +=1
+            now = datetime.datetime.now(datetime.timezone.utc)
+            # Calculate the time 'days_ago' days ago as a datetime object.
+            past_datetime = now - datetime.timedelta(days=90)
+            # Convert the past datetime object to a Unix timestamp.
+            past_timestamp = time.mktime(past_datetime.timetuple())
 
             if counter>=1:
                 counter=0
@@ -402,6 +407,13 @@ def notificationListener():
                     comment_level=0
                     print(transactor)
                     for postId,data in userdata.items():
+                        #check if expired
+                        if mentioned_post := get_single_post(postId,transactor):
+                            if mentioned_post["TimestampNanos"]/1e9 < past_timestamp:
+                                del parent_post_list[transactor][postId]
+                                create_post("Deleted this post thread notification (expired)",postId) 
+                                continue  
+
                         if single_post_details:=get_single_post(data["ParentPostHashHex"], transactor):
                             parent_post_list[transactor][postId]["Comments"]=parent_post_list[transactor][postId].get("Comments",[])
                             print("Checking comment->")
