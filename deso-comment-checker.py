@@ -10,7 +10,8 @@ from pprint import pprint
 import datetime
 import re
 
-blacklist = ["greenwork32","globalnetwork22"]  #bots accounts username list
+HAS_LOCAL_NODE_WITH_INDEXING = False
+HAS_LOCAL_NODE_WITHOUT_INDEXING = True
 
 BASE_URL = "https://node.deso.org"
 
@@ -18,6 +19,7 @@ seed_phrase_or_hex="" #dont share this
 NOTIFICATION_UPDATE_INTERVEL = 30 #in seconds
 
 api_url = BASE_URL+"/api/v0/"
+local_url= "http://localhost"+"/api/v0/"
 prof_resp="PublicKeyToProfileEntryResponse"
 tpkbc ="TransactorPublicKeyBase58Check"
 pkbc="PublicKeyBase58Check"
@@ -37,7 +39,16 @@ client = DeSoDexClient(
 
 def api_get(endpoint, payload=None):
     try:
-        response = requests.post(api_url + endpoint, json=payload)
+        if HAS_LOCAL_NODE_WITHOUT_INDEXING:
+            if endpoint=="get-notifications":
+                print("---Using remote node---")
+                response = requests.post(api_url + endpoint, json=payload)
+                print("--------End------------")
+            else:
+                response = requests.post(local_url + endpoint, json=payload)
+        if HAS_LOCAL_NODE_WITH_INDEXING:
+            response = requests.post(local_url + endpoint, json=payload)
+            
         response.raise_for_status()
         return response.json()
     except Exception as e:
@@ -106,7 +117,7 @@ def create_post(body,parent_post_hash_hex):
         print('Signing and submitting txn...')
         submitted_txn_response = client.sign_and_submit_txn(post_response)
         txn_hash = submitted_txn_response['TxnHashHex']
-        client.wait_for_commitment_with_timeout(txn_hash, 30.0)
+        #client.wait_for_commitment_with_timeout(txn_hash, 30.0)
         print('SUCCESS!')
         return 1
     except Exception as e:
@@ -169,7 +180,10 @@ def parse_state(paragraph):
     
 def check_comment(transactor,postId,parent_post_list,comment,data_save,comment_level,notify=False):
     if comment["CommentCount"]>0:   #this post/comment has no one commented,exit
+        #print("|Comment Count:",end='')
+        #print(comment["CommentCount"],end='')
         single_post_details=get_single_post(comment["PostHashHex"], transactor)
+        upper_user=single_post_details["ProfileEntryResponse"]["Username"]
         comment_level +=1
         if comments := single_post_details["Comments"]:
             for comment in comments:
@@ -184,18 +198,23 @@ def check_comment(transactor,postId,parent_post_list,comment,data_save,comment_l
                         parent_post_link = parent_post_list[transactor][postId]["ParentPostHashHex"]
                         p=get_single_post(parent_post_link, transactor)
                         thread_owner = p["ProfileEntryResponse"]["Username"]
-                        post_body=f"{username} commented on {thread_owner}'s thread:\nhttps://diamondapp.com/posts/{parent_post_link}\n\nContent:\n{body}\n\nComment:\nhttps://diamondapp.com/posts/{comment_id}"
+                        post_body=f"{username} commented on {thread_owner}'s thread:\nhttps://diamondapp.com/posts/{parent_post_link}\n\n{username} -> {upper_user}'s comment/post\n\nContent:\n{body}\n\nComment Link:\nhttps://diamondapp.com/posts/{comment_id}"
                         print(post_body)
                         modified_text = post_body.replace("@", "(@)")
                         print("Posting")
                         create_post(modified_text,postId)
+                    elif username!=bot_username:
+                        print("Avoiding my own comment trigger")
+                    elif not notify:
+                        print("Initial posts thread scanning to get comments when mentioned")
                         
                     parent_post_list[transactor][postId]["Comments"].append(comment["PostHashHex"])
                     save_to_json(parent_post_list,"parentPostList.json")
                     data_save = True
-                print(f"[{comment_level}]Comment:")
+                print(f"[{comment_level}]Comment|",end='')
                 
                 check_comment(transactor,postId,parent_post_list,comment,data_save,comment_level,notify)
+                print()
 
 def notificationListener():
     counter=0
@@ -253,13 +272,15 @@ def notificationListener():
                                     print(postId)
                                     transactor=notification["Metadata"]["TransactorPublicKeyBase58Check"]
                                     r=get_single_profile("",transactor)
+                                    if r is None:
+                                        break
                                     username= r["Profile"]["Username"]
                                     mentioned_post = get_single_post(postId,bot_public_key)
                                     body=mentioned_post["Body"]
                                 
-                                    print(f"username{username}")
-                                    print(f"transactor{transactor}")
-                                    print(f"body{body}") 
+                                    print(f"username: {username}")
+                                    print(f"transactor: {transactor}")
+                                    print(f"body:\n{body}") 
                                     status_res=parse_state(body)
                                     if status_res is None:
                                         status=None
@@ -371,22 +392,27 @@ def notificationListener():
     
             counter +=1
 
-            if counter>3:
+            if counter>=1:
                 counter=0
                 for transactor,userdata in parent_post_list.items():
                     data_save = False
                     comment_level=0
                     print(transactor)
                     for postId,data in userdata.items():
-                        single_post_details=get_single_post(data["ParentPostHashHex"], transactor)
-                        parent_post_list[transactor][postId]["Comments"]=parent_post_list[transactor][postId].get("Comments",[])
-                        check_comment(transactor,postId,parent_post_list,single_post_details,data_save,comment_level,notify=True)
+                        if single_post_details:=get_single_post(data["ParentPostHashHex"], transactor):
+                            parent_post_list[transactor][postId]["Comments"]=parent_post_list[transactor][postId].get("Comments",[])
+                            print("Checking comment->")
+                            check_comment(transactor,postId,parent_post_list,single_post_details,data_save,comment_level,notify=True)
                                 
 
                             #pprint(comment)
                     if data_save:
                         save_to_json(parent_post_list,"parentPostList.json")
                 print("End")
+
+                print(f"Number of users registered:{users_count}")
+                print(f"Number of Threads added:{threads}")
+                print(f"Number of comments to scan:{posts_scan}")
 
 
             for _ in range(NOTIFICATION_UPDATE_INTERVEL):
