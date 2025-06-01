@@ -327,6 +327,7 @@ def notificationListener():
                                                         print("------Deleting thread notification------")
                                                         del parent_post_list[transactor][id]
                                                         create_post("Deleted this post thread notification",postId) 
+                                                        create_post("Deleted this post thread notification",id) 
                                                         break
                                             except Exception as e:
                                                 print("Error deleting")
@@ -335,6 +336,8 @@ def notificationListener():
                                         elif status=="off_all":
                                             try:
                                                 print("------Deleting all "+username+" thread notification------")
+                                                for id in parent_post_list[transactor]:
+                                                    create_post("Deleted this post thread notification",id) 
                                                 del parent_post_list[transactor]
                                                 create_post("Deleted all posts threads notification",postId) 
                                                 
