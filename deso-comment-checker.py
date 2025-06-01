@@ -167,35 +167,35 @@ def parse_state(paragraph):
     print(result)
     return result
     
-def check_comment(transactor,postId,parent_post_list,comment,get_single_post,data_save,comment_level,notify=False):
-                if comment["CommentCount"]>0:
-                    single_post_details=get_single_post(comment["PostHashHex"], transactor)
-                    comment_level +=1
-                    if comments := single_post_details["Comments"]:
-                        for comment in comments:
-                            if comment["PostHashHex"] not in parent_post_list[transactor][postId]["Comments"]:
-                                print(f"New comment detected")
-                                body=comment["Body"]
-                                comment_id=comment["PostHashHex"] 
-                                # r=get_single_profile("",transactor)
-                                # username= r["Profile"]["Username"]
-                                username = comment["ProfileEntryResponse"]["Username"]
-                                if username!=bot_username and notify:  #avoid same bot comment notification infinit loop
-                                    parent_post_link = parent_post_list[transactor][postId]["ParentPostHashHex"]
-                                    p=get_single_post(parent_post_link, transactor)
-                                    thread_owner = p["ProfileEntryResponse"]["Username"]
-                                    post_body=f"{username} commented on {thread_owner}'s thread:\nhttps://diamondapp.com/posts/{parent_post_link}\n\nContent:\n{body}\n\nComment:\nhttps://diamondapp.com/posts/{comment_id}"
-                                    print(post_body)
-                                    modified_text = post_body.replace("@", "(@)")
-                                    print("Posting")
-                                    create_post(modified_text,postId)
-                                    
-                                parent_post_list[transactor][postId]["Comments"].append(comment["PostHashHex"])
-                                save_to_json(parent_post_list,"parentPostList.json")
-                                data_save = True
-                            print(f"[{comment_level}]Comment:")
-                            
-                            check_comment(transactor,postId,parent_post_list,comment,get_single_post,data_save,comment_level,notify)
+def check_comment(transactor,postId,parent_post_list,comment,data_save,comment_level,notify=False):
+    if comment["CommentCount"]>0:   #this post/comment has no one commented,exit
+        single_post_details=get_single_post(comment["PostHashHex"], transactor)
+        comment_level +=1
+        if comments := single_post_details["Comments"]:
+            for comment in comments:
+                if comment["PostHashHex"] not in parent_post_list[transactor][postId]["Comments"]:
+                    print(f"New comment detected")
+                    body=comment["Body"]
+                    comment_id=comment["PostHashHex"] 
+                    # r=get_single_profile("",transactor)
+                    # username= r["Profile"]["Username"]
+                    username = comment["ProfileEntryResponse"]["Username"]
+                    if username!=bot_username and notify:  #avoid same bot comment notification infinit loop
+                        parent_post_link = parent_post_list[transactor][postId]["ParentPostHashHex"]
+                        p=get_single_post(parent_post_link, transactor)
+                        thread_owner = p["ProfileEntryResponse"]["Username"]
+                        post_body=f"{username} commented on {thread_owner}'s thread:\nhttps://diamondapp.com/posts/{parent_post_link}\n\nContent:\n{body}\n\nComment:\nhttps://diamondapp.com/posts/{comment_id}"
+                        print(post_body)
+                        modified_text = post_body.replace("@", "(@)")
+                        print("Posting")
+                        create_post(modified_text,postId)
+                        
+                    parent_post_list[transactor][postId]["Comments"].append(comment["PostHashHex"])
+                    save_to_json(parent_post_list,"parentPostList.json")
+                    data_save = True
+                print(f"[{comment_level}]Comment:")
+                
+                check_comment(transactor,postId,parent_post_list,comment,data_save,comment_level,notify)
 
 def notificationListener():
     counter=0
@@ -298,7 +298,7 @@ def notificationListener():
                                                 parent_post_list[transactor][postId]["Comments"]=parent_post_list[transactor][postId].get("Comments",[]) 
                                                 data_save = False
                                                 comment_level=0
-                                                check_comment(transactor,postId,parent_post_list,single_post_details,get_single_post,data_save,comment_level,notify=False)  
+                                                check_comment(transactor,postId,parent_post_list,single_post_details,data_save,comment_level,notify=False)  
                                         elif status=="off":
                                             try:
                                                 for id in parent_post_list[transactor]:
@@ -380,7 +380,7 @@ def notificationListener():
                     for postId,data in userdata.items():
                         single_post_details=get_single_post(data["ParentPostHashHex"], transactor)
                         parent_post_list[transactor][postId]["Comments"]=parent_post_list[transactor][postId].get("Comments",[])
-                        check_comment(transactor,postId,parent_post_list,single_post_details,get_single_post,data_save,comment_level,notify=True)
+                        check_comment(transactor,postId,parent_post_list,single_post_details,data_save,comment_level,notify=True)
                                 
 
                             #pprint(comment)
