@@ -202,6 +202,14 @@ def notificationListener():
     profile=get_single_profile("",bot_public_key)
     post_id_list=[]
     parent_post_list={}
+
+    lastIndex=-1
+    
+    if result:=load_from_json("notificationLastIndex_thread.json"):
+        lastIndex=result["index"]
+
+    maxIndex=lastIndex
+
     if result:=load_from_json("postIdList_thread.json"):
         post_id_list=result["post_ids"]
 
@@ -210,24 +218,29 @@ def notificationListener():
 
     while not app_close:
         try:
-            lastIndex=-1
+            
             currentIndex=-1
             if result:=load_from_json("notificationLastIndex_thread.json"):
                 lastIndex=result["index"]
             print(f"lastIndex:{lastIndex}")
-            first=True
-            i=0
 
-            while i<10:#max 10 iteration, total 200 notifications check untill last check index
+            i=0
+            while i<20:#max 20 iteration, total 400 notifications check untill last check index
                 i +=1 
                 print(f"currentIndex:{currentIndex}")
                 result=get_notifications(profile["Profile"]["PublicKeyBase58Check"],FetchStartIndex=currentIndex,NumToFetch=20,FilteredOutNotificationCategories={"dao coin":True,"user association":True, "post association":True,"post":False,"dao":True,"nft":True,"follow":True,"like":True,"diamond":True,"transfer":True})
                 for notification in result["Notifications"]:
                 
                     currentIndex = notification["Index"]
-                    if first:
-                        first=False
-                        save_to_json({"index":notification["Index"]},"notificationLastIndex_thread.json")
+                    print(f"currentIndex:{currentIndex}")
+
+                    if notification["Index"]>maxIndex: #new mentions
+                        print("New mentions")
+                        maxIndex = notification["Index"]
+                    if currentIndex<lastIndex:
+                        print("Exiting notification loop, currentIndex<lastIndex")
+                        break
+
                             
                     for affectedkeys in notification["Metadata"]["AffectedPublicKeys"]:
                         if affectedkeys["Metadata"]=="MentionedPublicKeyBase58Check":
@@ -243,7 +256,7 @@ def notificationListener():
                                     username= r["Profile"]["Username"]
                                     mentioned_post = get_single_post(postId,bot_public_key)
                                     body=mentioned_post["Body"]
-                                    #check if on or off
+                                
                                     print(f"username{username}")
                                     print(f"transactor{transactor}")
                                     print(f"body{body}") 
@@ -270,7 +283,7 @@ def notificationListener():
 
                                     if status is not None:
                                         if status=="on":
-                                            #check if exsists first from another mention by same user
+                                          
                                             present=False
                                             if transactor in parent_post_list:
                                                 for mentioned_post in parent_post_list[transactor]:
@@ -297,10 +310,10 @@ def notificationListener():
                                             except Exception as e:
                                                 print("Error deleting")
                                                 print(e)
-                                            #print(parent_post_list)
+                                   
                                         elif status=="off_all":
                                             try:
-                                                print("------Deleting all thread notification------")
+                                                print("------Deleting all "+username+" thread notification------")
                                                 del parent_post_list[transactor]
                                                 create_post("Deleted all posts threads notification",postId) 
                                                 
@@ -331,8 +344,17 @@ def notificationListener():
                                     save_to_json(parent_post_list,"parentPostList.json")
                                    
                                     break
+                if notification["Index"]<20: #end of mentions
+                    print("End of mentions")
+                    break 
                 if currentIndex<=lastIndex:
+                    print("Exiting while loop, currentIndex<=lastIndex")
                     break
+
+            if maxIndex > lastIndex:
+                print("maxIndex > lastIndex")
+                lastIndex = maxIndex
+                save_to_json({"index":lastIndex},"notificationLastIndex_thread.json")
 
             users_count=len(parent_post_list)
             posts_scan=0
