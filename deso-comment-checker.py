@@ -10,8 +10,10 @@ from pprint import pprint
 import datetime
 import re
 import psutil
+import logging
+logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.INFO)
 
-REMOTE_API = True
+REMOTE_API = False
 HAS_LOCAL_NODE_WITH_INDEXING = False
 HAS_LOCAL_NODE_WITHOUT_INDEXING = True
 
@@ -41,8 +43,8 @@ else:
     if HAS_LOCAL_NODE_WITH_INDEXING:
         HAS_LOCAL_NODE_WITHOUT_INDEXING = False
 
-print(f"HAS_LOCAL_NODE_WITHOUT_INDEXING:{HAS_LOCAL_NODE_WITHOUT_INDEXING}")
-print(f"HAS_LOCAL_NODE_WITH_INDEXING:{HAS_LOCAL_NODE_WITH_INDEXING}")
+logging.debug(f"HAS_LOCAL_NODE_WITHOUT_INDEXING:{HAS_LOCAL_NODE_WITHOUT_INDEXING}")
+logging.debug(f"HAS_LOCAL_NODE_WITH_INDEXING:{HAS_LOCAL_NODE_WITH_INDEXING}")
 
 
 client = DeSoDexClient(
@@ -59,9 +61,9 @@ def api_get(endpoint, payload=None):
         else:
             if HAS_LOCAL_NODE_WITHOUT_INDEXING:
                 if endpoint=="get-notifications":
-                    print("---Using remote node---")
+                    logging.debug("---Using remote node---")
                     response = requests.post(api_url + endpoint, json=payload)
-                    print("--------End------------")
+                    logging.debug("--------End------------")
                 else:
                     response = requests.post(local_url + endpoint, json=payload)
             if HAS_LOCAL_NODE_WITH_INDEXING:
@@ -71,7 +73,7 @@ def api_get(endpoint, payload=None):
         response.raise_for_status()
         return response.json()
     except Exception as e:
-        print(f"API Error: {e}")
+        logging.error(f"API Error: {e}")
         return None
 
 def get_single_profile(Username,PublicKeyBase58Check=""):
@@ -87,7 +89,7 @@ def get_single_profile(Username,PublicKeyBase58Check=""):
 bot_public_key = base58_check_encode(client.deso_keypair.public_key, False)
 bot_username = get_single_profile("",bot_public_key)["Profile"]["Username"]
 if bot_username is None:
-    print("Error,bot username can not get. exit")
+    logging.error("Error,bot username can not get. exit")
     exit()
 
 
@@ -118,9 +120,9 @@ def get_notifications(PublicKeyBase58Check,FetchStartIndex=-1,NumToFetch=1,Filte
 
 
 def create_post(body,parent_post_hash_hex):
-    print("\n---- Submit Post ----")
+    logging.info("\n---- Submit Post ----")
     try:
-        print('Constructing submit-post txn...')
+        logging.info('Constructing submit-post txn...')
         post_response = client.submit_post(
             updater_public_key_base58check=bot_public_key,
             body=body,
@@ -133,14 +135,14 @@ def create_post(body,parent_post_hash_hex):
             is_hidden=False,
             in_tutorial=False
         )
-        print('Signing and submitting txn...')
+        logging.info('Signing and submitting txn...')
         submitted_txn_response = client.sign_and_submit_txn(post_response)
         txn_hash = submitted_txn_response['TxnHashHex']
         
-        print('SUCCESS!')
+        logging.info('SUCCESS!')
         return 1
     except Exception as e:
-        print(f"ERROR: Submit post call failed: {e}")
+        logging.error(f"ERROR: Submit post call failed: {e}")
         return 0
 
 
@@ -148,26 +150,26 @@ def save_to_json(data, filename):
   try:
     with open(filename, 'w') as f:  # 'w' mode: write (overwrites existing file)
       json.dump(data, f, indent=4)  # indent for pretty formatting
-    print(f"Data saved to {filename}")
+    logging.info(f"Data saved to {filename}")
   except TypeError as e:
-    print(f"Error: Data is not JSON serializable: {e}")
+    logging.error(f"Error: Data is not JSON serializable: {e}")
   except Exception as e:
-    print(f"Error saving to file: {e}")
+    logging.error(f"Error saving to file: {e}")
 
 def load_from_json(filename):
   try:
     with open(filename, 'r') as f:  # 'r' mode: read
       data = json.load(f)
-    print(f"Data loaded from {filename}")
+    logging.info(f"Data loaded from {filename}")
     return data
   except FileNotFoundError:
-    print(f"Error: File not found: {filename}")
+    logging.error(f"Error: File not found: {filename}")
     return None  # Important: Return None if file not found
   except json.JSONDecodeError as e:
-    print(f"Error decoding JSON in {filename}: {e}")
+    logging.error(f"Error decoding JSON in {filename}: {e}")
     return None # Important: Return None if JSON is invalid
   except Exception as e:
-    print(f"Error loading from file: {e}")
+    logging.error(f"Error loading from file: {e}")
     return None
 
 def parse_state(paragraph):
@@ -199,13 +201,11 @@ def parse_state(paragraph):
         result = {'command': full_command, 'value': value}
 
     # Output result
-    print(result)
+    logging.debug(result)
     return result
     
 def check_comment(transactor,postId,parent_post_list,comment,data_save,comment_level,notify=False):
-    if comment["CommentCount"]>0:   #this post/comment has no one commented,exit
-        #print("|Comment Count:",end='')
-        #print(comment["CommentCount"],end='')
+    if comment["CommentCount"]>0:   #this post/comment has no comments,exit
         single_post_details=get_single_post(comment["PostHashHex"], transactor)
         upper_user=single_post_details["ProfileEntryResponse"]["Username"]
         upper_user_id=single_post_details["ProfileEntryResponse"]["PublicKeyBase58Check"]
@@ -220,48 +220,43 @@ def check_comment(transactor,postId,parent_post_list,comment,data_save,comment_l
                     
                     body=comment["Body"]
                     comment_id=comment["PostHashHex"] 
-                    # r=get_single_profile("",transactor)
-                    # username= r["Profile"]["Username"]
                     
                     if (username!=bot_username and commenter_id!=transactor and upper_user_id!=transactor) and notify:  #avoid same bot comment notification infinit loop
-                        print(f"New comment detected")
+                        logging.info(f"New comment detected")
                         parent_post_link = parent_post_list[transactor][postId]["ParentPostHashHex"]
                         p=get_single_post(parent_post_link, transactor)
                         thread_owner = p["ProfileEntryResponse"]["Username"]
-                                          
                         mode = parent_post_list[transactor][postId].get("mode","basic")
-                         
                         if mode == "basic":
                             post_body = f"{username} commented on {thread_owner}'s thread:\nhttps://diamondapp.com/posts/{comment_id}"
                         elif mode =="full":
                             post_body=f"{username} commented on {thread_owner}'s thread:\nhttps://diamondapp.com/posts/{parent_post_link}\n\n{username} -> {upper_user}'s comment/post\n\nContent:\n{body}\n\nComment Link:\nhttps://diamondapp.com/posts/{comment_id}"
                         
                         modified_text = post_body.replace("@", "(@)")
-                        print(post_body)
+                        logging.debug(post_body)
                         
                         create_post(modified_text,postId)
                         
                         data_save = True
                     elif username==bot_username:
-                        print("Avoiding my own comment trigger")
+                        logging.debug("Avoiding my own comment trigger")
                     elif commenter_id==transactor or upper_user_id==transactor:
-                        print("Avoiding because native notification is doing it")
+                        logging.debug("Avoiding because native notification is doing it")
                     elif not notify:
-                        print("Initial posts thread scanning to get comments when mentioned")
+                        logging.debug("Initial posts thread scanning to get comments when mentioned")
                     
                     if username!=bot_username:
                         parent_post_list[transactor][postId]["Comments"].append(comment["PostHashHex"])
                         save_to_json(parent_post_list,"parentPostList.json")
                     
-                print(f"[{comment_level}]Comment|",end='')
+                logging.debug(f"[{comment_level}]Comment")
                 if postId!=comment["PostHashHex"] and username!=bot_username:
                     
                     check_comment(transactor,postId,parent_post_list,comment,data_save,comment_level,notify)
-                    print()
                 elif postId==comment["PostHashHex"]:
-                    print("commentchecker on post skipping")
+                    logging.debug("commentchecker on post skipping")
                 elif username==bot_username:
-                    print("My own comments skipping")
+                    logging.debug("My own comments skipping")
 
 def notificationListener():
     counter=0
@@ -289,23 +284,23 @@ def notificationListener():
             currentIndex=-1
             if result:=load_from_json("notificationLastIndex_thread.json"):
                 lastIndex=result["index"]
-            print(f"lastIndex:{lastIndex}")
+            logging.debug(f"lastIndex:{lastIndex}")
 
             i=0
             while i<20:#max 20 iteration, total 400 notifications check untill last check index
                 i +=1 
-                print(f"currentIndex:{currentIndex}")
+                logging.debug(f"currentIndex:{currentIndex}")
                 result=get_notifications(profile["Profile"]["PublicKeyBase58Check"],FetchStartIndex=currentIndex,NumToFetch=20,FilteredOutNotificationCategories={"dao coin":True,"user association":True, "post association":True,"post":False,"dao":True,"nft":True,"follow":True,"like":True,"diamond":True,"transfer":True})
                 for notification in result["Notifications"]:
                 
                     currentIndex = notification["Index"]
-                    print(f"currentIndex:{currentIndex}")
+                    logging.debug(f"currentIndex:{currentIndex}")
 
                     if notification["Index"]>maxIndex: #new mentions
-                        print("New mentions")
+                        logging.info("New mentions")
                         maxIndex = notification["Index"]
                     if currentIndex<lastIndex:
-                        print("Exiting notification loop, currentIndex<lastIndex")
+                        logging.debug("Exiting notification loop, currentIndex<lastIndex")
                         break
 
                             
@@ -317,7 +312,7 @@ def notificationListener():
                                     break
                                 else:
                                     post_id_list.append(postId)
-                                    print(postId)
+                                    logging.info(postId)
                                     transactor=notification["Metadata"]["TransactorPublicKeyBase58Check"]
                                     r=get_single_profile("",transactor)
                                     if r is None:
@@ -326,19 +321,19 @@ def notificationListener():
                                     mentioned_post = get_single_post(postId,bot_public_key)
                                     body=mentioned_post["Body"]
                                 
-                                    print(f"username: {username}")
-                                    print(f"transactor: {transactor}")
-                                    print(f"body:\n{body}") 
+                                    logging.debug(f"username: {username}")
+                                    logging.debug(f"transactor: {transactor}")
+                                    logging.debug(f"body:\n{body}") 
                                     status_res=parse_state(body)
                                     if status_res is None:
                                         status=None
                                     else:
                                         status=status_res["value"]
 
-                                    print(f"Status:{status}")
+                                    logging.debug(f"Status:{status}")
 
                                     parent_post = [{"test":1}]
-                                    print("Start check parent post=>")
+                                    logging.info("Start check parent post=>")
                                     parent_post_id = postId
                                     while len(parent_post)>0:
                                         post_result=get_single_post(parent_post_id, transactor, fetch_parents=True)
@@ -346,7 +341,7 @@ def notificationListener():
                                         if len(parent_post)>0:
                                             parent_post_id = parent_post[0]["PostHashHex"]
                                         
-                                    print(parent_post_id)
+                                    logging.debug(parent_post_id)
                                     if status is None:
                                         status = "basic"
 
@@ -360,7 +355,7 @@ def notificationListener():
                                             if not present:
                                                 parent_post_list[transactor] = parent_post_list.get(transactor,{})
                                                 parent_post_list[transactor][postId] = parent_post_list[transactor].get(postId,{})
-                                                print("------Adding thread notification------")
+                                                logging.info("------Adding thread notification------")
                                                 parent_post_list[transactor][postId]["ParentPostHashHex"] = parent_post_id
                                                 single_post_details=get_single_post(parent_post_id, transactor)
                                                 parent_post_list[transactor][postId]["Comments"]=parent_post_list[transactor][postId].get("Comments",[]) 
@@ -373,36 +368,36 @@ def notificationListener():
                                                 comment_level=0
                                                 check_comment(transactor,postId,parent_post_list,single_post_details,data_save,comment_level,notify=False)  
                                             else:
-                                                print("Already registered")
+                                                logging.debug("Already registered")
                                                 create_post("Already registered",postId) 
                                         elif status=="off":
                                             try:
                                                 for id in parent_post_list[transactor]:
                                                     if(parent_post_list[transactor][id]["ParentPostHashHex"]==parent_post_id):
-                                                        print("------Deleting thread notification------")
+                                                        logging.info("------Deleting thread notification------")
                                                         del parent_post_list[transactor][id]
                                                         create_post("Deleted this post thread notification",postId) 
                                                         create_post("Deleted this post thread notification",id) 
                                                         break
                                             except Exception as e:
-                                                print("Error deleting")
-                                                print(e)
+                                                logging.error("Error deleting")
+                                                logging.error(e)
                                    
                                         elif status=="off_all":
                                             try:
-                                                print("------Deleting all "+username+" thread notification------")
+                                                logging.info("------Deleting all "+username+" thread notification------")
                                                 for id in parent_post_list[transactor]:
                                                     create_post("Deleted this post thread notification",id) 
                                                 del parent_post_list[transactor]
                                                 create_post("Deleted all posts threads notification",postId) 
                                                 
                                             except Exception as e:
-                                                print("Error deleting")
-                                                print(e)
+                                                logging.error("Error deleting")
+                                                logging.error(e)
                                         elif status=="info":
                                             try:
                                                 link_count=0
-                                                print("------info thread notification------")
+                                                logging.info("------info thread notification------")
                                                 reply_body=username+" Registered Posts Threads\n\n"
                                                 if transactor in parent_post_list:
                                                     
@@ -412,26 +407,26 @@ def notificationListener():
                                                         link_count += 1
                                                         reply_body += "["+str(link_count)+"] "+thread_owner+"\nhttps://diamondapp.com/posts/"+str(parent_post_list[transactor][mentioned_posts]["ParentPostHashHex"])+"\n"
                                                         
-                                                    print(reply_body)
+                                                    logging.debug(reply_body)
                                                 create_post(reply_body,postId)        
                                                 
                                             except Exception as e:
-                                                print("Error deleting")
-                                                print(e)
+                                                logging.error("Error deleting")
+                                                logging.error(e)
 
                                     save_to_json({"post_ids":post_id_list},"postIdList_thread.json")
                                     save_to_json(parent_post_list,"parentPostList.json")
                                    
                                     break
                 if notification["Index"]<20: #end of mentions
-                    print("End of mentions")
+                    logging.debug("End of mentions")
                     break 
                 if currentIndex<=lastIndex:
-                    print("Exiting while loop, currentIndex<=lastIndex")
+                    logging.debug("Exiting while loop, currentIndex<=lastIndex")
                     break
 
             if maxIndex > lastIndex:
-                print("maxIndex > lastIndex")
+                logging.debug("maxIndex > lastIndex")
                 lastIndex = maxIndex
                 save_to_json({"index":lastIndex},"notificationLastIndex_thread.json")
 
@@ -443,9 +438,9 @@ def notificationListener():
                 for mentioned_post in parent_post_list[users]:
                     posts_scan += len(parent_post_list[users][mentioned_post]["Comments"])
                 
-            print(f"Number of users registered:{users_count}")
-            print(f"Number of Threads added:{threads}")
-            print(f"Number of comments to scan:{posts_scan}")
+            logging.info(f"Number of users registered:{users_count}")
+            logging.info(f"Number of Threads added:{threads}")
+            logging.info(f"Number of comments to scan:{posts_scan}")
             
     
             counter +=1
@@ -455,12 +450,12 @@ def notificationListener():
             # Convert the past datetime object to a Unix timestamp.
             past_timestamp = time.mktime(past_datetime.timetuple())
 
-            if counter>=4:
+            if counter>=1:
                 counter=0
                 for transactor,userdata in parent_post_list.items():
                     data_save = False
                     comment_level=0
-                    print(transactor)
+                    logging.debug(transactor)
                     for postId,data in userdata.items():
                         #check if expired
                         if mentioned_post := get_single_post(postId,transactor):
@@ -471,14 +466,14 @@ def notificationListener():
 
                         if single_post_details:=get_single_post(data["ParentPostHashHex"], transactor):
                             parent_post_list[transactor][postId]["Comments"]=parent_post_list[transactor][postId].get("Comments",[])
-                            print("Checking comment->")
+                            logging.debug("Checking comment->")
                             check_comment(transactor,postId,parent_post_list,single_post_details,data_save,comment_level,notify=True)
                                 
 
                             #pprint(comment)
                     if data_save:
                         save_to_json(parent_post_list,"parentPostList.json")
-                print("End")
+                logging.debug("End")
 
                 
 
@@ -493,7 +488,7 @@ def notificationListener():
                 info_body +=f"Available RAM memory: {mem.available / (1024 ** 3):.1f} GB\n"
                 info_body +=f"RAM Memory usage: {mem.percent}%\n"
 
-                print(info_body)
+                logging.debug(info_body)
 
                 now = datetime.datetime.now()
     
@@ -506,7 +501,7 @@ def notificationListener():
                 if app_close: 
                     return
         except Exception as e:
-            print(e)
+            logging.error(e)
             time.sleep(1)
 
 
