@@ -11,7 +11,7 @@ import datetime
 import re
 import psutil
 
-
+REMOTE_API = True
 HAS_LOCAL_NODE_WITH_INDEXING = False
 HAS_LOCAL_NODE_WITHOUT_INDEXING = True
 
@@ -31,11 +31,15 @@ stop_flag = True
 calculation_thread = None
 app_close=False
 
-if HAS_LOCAL_NODE_WITHOUT_INDEXING:
+if REMOTE_API:
+    HAS_LOCAL_NODE_WITHOUT_INDEXING= False
     HAS_LOCAL_NODE_WITH_INDEXING = False
+else:
+    if HAS_LOCAL_NODE_WITHOUT_INDEXING:
+        HAS_LOCAL_NODE_WITH_INDEXING = False
 
-if HAS_LOCAL_NODE_WITH_INDEXING:
-    HAS_LOCAL_NODE_WITHOUT_INDEXING = False
+    if HAS_LOCAL_NODE_WITH_INDEXING:
+        HAS_LOCAL_NODE_WITHOUT_INDEXING = False
 
 print(f"HAS_LOCAL_NODE_WITHOUT_INDEXING:{HAS_LOCAL_NODE_WITHOUT_INDEXING}")
 print(f"HAS_LOCAL_NODE_WITH_INDEXING:{HAS_LOCAL_NODE_WITH_INDEXING}")
@@ -50,15 +54,19 @@ client = DeSoDexClient(
 
 def api_get(endpoint, payload=None):
     try:
-        if HAS_LOCAL_NODE_WITHOUT_INDEXING:
-            if endpoint=="get-notifications":
-                print("---Using remote node---")
-                response = requests.post(api_url + endpoint, json=payload)
-                print("--------End------------")
-            else:
+        if REMOTE_API:
+            response = requests.post(api_url + endpoint, json=payload)
+        else:
+            if HAS_LOCAL_NODE_WITHOUT_INDEXING:
+                if endpoint=="get-notifications":
+                    print("---Using remote node---")
+                    response = requests.post(api_url + endpoint, json=payload)
+                    print("--------End------------")
+                else:
+                    response = requests.post(local_url + endpoint, json=payload)
+            if HAS_LOCAL_NODE_WITH_INDEXING:
                 response = requests.post(local_url + endpoint, json=payload)
-        if HAS_LOCAL_NODE_WITH_INDEXING:
-            response = requests.post(local_url + endpoint, json=payload)
+        
             
         response.raise_for_status()
         return response.json()
@@ -205,18 +213,8 @@ def check_comment(transactor,postId,parent_post_list,comment,data_save,comment_l
         if comments := single_post_details["Comments"]:
            
             for comment in comments:
-                #temp funct to remove bot comments
                 username = comment["ProfileEntryResponse"]["Username"]
                 commenter_id=comment["ProfileEntryResponse"]["PublicKeyBase58Check"]
-
-                
-                # if username==bot_username:
-                #     try:
-                #         parent_post_list[transactor][postId]["Comments"].remove(comment["PostHashHex"])
-                #         save_to_json(parent_post_list,"parentPostList.json")
-                #     except Exception as e:
-                #         print(e)
-                #     continue
 
                 if comment["PostHashHex"] not in parent_post_list[transactor][postId]["Comments"]:
                     
@@ -457,7 +455,7 @@ def notificationListener():
             # Convert the past datetime object to a Unix timestamp.
             past_timestamp = time.mktime(past_datetime.timetuple())
 
-            if counter>=1:
+            if counter>=4:
                 counter=0
                 for transactor,userdata in parent_post_list.items():
                     data_save = False
