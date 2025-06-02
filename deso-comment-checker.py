@@ -9,6 +9,8 @@ import argparse
 from pprint import pprint
 import datetime
 import re
+import psutil
+
 
 HAS_LOCAL_NODE_WITH_INDEXING = False
 HAS_LOCAL_NODE_WITHOUT_INDEXING = True
@@ -28,6 +30,15 @@ pkbc="PublicKeyBase58Check"
 stop_flag = True
 calculation_thread = None
 app_close=False
+
+if HAS_LOCAL_NODE_WITHOUT_INDEXING:
+    HAS_LOCAL_NODE_WITH_INDEXING = False
+
+if HAS_LOCAL_NODE_WITH_INDEXING:
+    HAS_LOCAL_NODE_WITHOUT_INDEXING = False
+
+print(f"HAS_LOCAL_NODE_WITHOUT_INDEXING:{HAS_LOCAL_NODE_WITHOUT_INDEXING}")
+print(f"HAS_LOCAL_NODE_WITH_INDEXING:{HAS_LOCAL_NODE_WITH_INDEXING}")
 
 
 client = DeSoDexClient(
@@ -152,14 +163,15 @@ def load_from_json(filename):
     return None
 
 def parse_state(paragraph):
-    pattern = r'@commentchecker\s+(on|off(?:\s+all)?|info)\b'
+    pattern = r'@commentchecker\s+(on(?:\s+\w+)?|off(?:\s+all)?|info)\b'
 
     # Value mapping
     value_map = {
         'on': 'on',
         'off': 'off',
         'off all': 'off_all',
-        'info': 'info'
+        'info': 'info',
+        'on basic': 'basic'  # new support for 'on basic'
     }
 
     # Search only for the first match
@@ -170,7 +182,11 @@ def parse_state(paragraph):
     if match:
         full_command = match.group(0)
         param = match.group(1).lower()
-        param = 'off all' if param.startswith('off') and 'all' in param else param  # normalize
+        # Normalize
+        if param.startswith('off') and 'all' in param:
+            param = 'off all'
+        elif param.startswith('on') and 'basic' in param:
+            param = 'on basic'
         value = value_map.get(param)
         result = {'command': full_command, 'value': value}
 
@@ -184,43 +200,77 @@ def check_comment(transactor,postId,parent_post_list,comment,data_save,comment_l
         #print(comment["CommentCount"],end='')
         single_post_details=get_single_post(comment["PostHashHex"], transactor)
         upper_user=single_post_details["ProfileEntryResponse"]["Username"]
+        upper_user_id=single_post_details["ProfileEntryResponse"]["PublicKeyBase58Check"]
         comment_level +=1
         if comments := single_post_details["Comments"]:
+           
             for comment in comments:
+                #temp funct to remove bot comments
+                username = comment["ProfileEntryResponse"]["Username"]
+                commenter_id=comment["ProfileEntryResponse"]["PublicKeyBase58Check"]
+
+                
+                # if username==bot_username:
+                #     try:
+                #         parent_post_list[transactor][postId]["Comments"].remove(comment["PostHashHex"])
+                #         save_to_json(parent_post_list,"parentPostList.json")
+                #     except Exception as e:
+                #         print(e)
+                #     continue
+
                 if comment["PostHashHex"] not in parent_post_list[transactor][postId]["Comments"]:
-                    print(f"New comment detected")
+                    
                     body=comment["Body"]
                     comment_id=comment["PostHashHex"] 
                     # r=get_single_profile("",transactor)
                     # username= r["Profile"]["Username"]
-                    username = comment["ProfileEntryResponse"]["Username"]
-                    if username!=bot_username and notify:  #avoid same bot comment notification infinit loop
+                    
+                    if (username!=bot_username and commenter_id!=transactor and upper_user_id!=transactor) and notify:  #avoid same bot comment notification infinit loop
+                        print(f"New comment detected")
                         parent_post_link = parent_post_list[transactor][postId]["ParentPostHashHex"]
                         p=get_single_post(parent_post_link, transactor)
                         thread_owner = p["ProfileEntryResponse"]["Username"]
-                        post_body=f"{username} commented on {thread_owner}'s thread:\nhttps://diamondapp.com/posts/{parent_post_link}\n\n{username} -> {upper_user}'s comment/post\n\nContent:\n{body}\n\nComment Link:\nhttps://diamondapp.com/posts/{comment_id}"
-                        print(post_body)
+                                          
+                        mode = parent_post_list[transactor][postId].get("mode","basic")
+                         
+                        if mode == "basic":
+                            post_body = f"{username} commented on {thread_owner}'s thread:\nhttps://diamondapp.com/posts/{comment_id}"
+                        elif mode =="full":
+                            post_body=f"{username} commented on {thread_owner}'s thread:\nhttps://diamondapp.com/posts/{parent_post_link}\n\n{username} -> {upper_user}'s comment/post\n\nContent:\n{body}\n\nComment Link:\nhttps://diamondapp.com/posts/{comment_id}"
+                        
                         modified_text = post_body.replace("@", "(@)")
-                        print("Posting")
+                        print(post_body)
+                        
                         create_post(modified_text,postId)
-                    elif username!=bot_username:
+                        
+                        data_save = True
+                    elif username==bot_username:
                         print("Avoiding my own comment trigger")
+                    elif commenter_id==transactor or upper_user_id==transactor:
+                        print("Avoiding because native notification is doing it")
                     elif not notify:
                         print("Initial posts thread scanning to get comments when mentioned")
-                        
-                    parent_post_list[transactor][postId]["Comments"].append(comment["PostHashHex"])
-                    save_to_json(parent_post_list,"parentPostList.json")
-                    data_save = True
+                    
+                    if username!=bot_username:
+                        parent_post_list[transactor][postId]["Comments"].append(comment["PostHashHex"])
+                        save_to_json(parent_post_list,"parentPostList.json")
+                    
                 print(f"[{comment_level}]Comment|",end='')
-                
-                check_comment(transactor,postId,parent_post_list,comment,data_save,comment_level,notify)
-                print()
+                if postId!=comment["PostHashHex"] and username!=bot_username:
+                    
+                    check_comment(transactor,postId,parent_post_list,comment,data_save,comment_level,notify)
+                    print()
+                elif postId==comment["PostHashHex"]:
+                    print("commentchecker on post skipping")
+                elif username==bot_username:
+                    print("My own comments skipping")
 
 def notificationListener():
     counter=0
     profile=get_single_profile("",bot_public_key)
     post_id_list=[]
     parent_post_list={}
+    last_run = datetime.datetime.now() - datetime.timedelta(hours=1)
 
     lastIndex=-1
     
@@ -300,11 +350,10 @@ def notificationListener():
                                         
                                     print(parent_post_id)
                                     if status is None:
-                                        status = "on"
+                                        status = "basic"
 
                                     if status is not None:
-                                        if status=="on":
-                                          
+                                        if status=="on" or status=="basic":
                                             present=False
                                             if transactor in parent_post_list:
                                                 for mentioned_post in parent_post_list[transactor]:
@@ -317,9 +366,17 @@ def notificationListener():
                                                 parent_post_list[transactor][postId]["ParentPostHashHex"] = parent_post_id
                                                 single_post_details=get_single_post(parent_post_id, transactor)
                                                 parent_post_list[transactor][postId]["Comments"]=parent_post_list[transactor][postId].get("Comments",[]) 
+                                                if status=="basic":
+                                                    parent_post_list[transactor][postId]["mode"] = "basic"
+                                                else:
+                                                    parent_post_list[transactor][postId]["mode"] = "full"
+                                                create_post("You have registered this thread with "+parent_post_list[transactor][postId]["mode"]+" option",postId)    
                                                 data_save = False
                                                 comment_level=0
                                                 check_comment(transactor,postId,parent_post_list,single_post_details,data_save,comment_level,notify=False)  
+                                            else:
+                                                print("Already registered")
+                                                create_post("Already registered",postId) 
                                         elif status=="off":
                                             try:
                                                 for id in parent_post_list[transactor]:
@@ -425,10 +482,26 @@ def notificationListener():
                         save_to_json(parent_post_list,"parentPostList.json")
                 print("End")
 
-                print(f"Number of users registered:{users_count}")
-                print(f"Number of Threads added:{threads}")
-                print(f"Number of comments to scan:{posts_scan}")
+                
 
+                mem = psutil.virtual_memory()
+                info_body="Comment Checker Service Status\n\n"
+                info_body +=f"Number of users registered: {users_count}\n"
+                info_body +=f"Number of Posts Threads added: {threads}\n"
+                info_body +=f"Number of comments to scan: {posts_scan}\n\n"
+                info_body +=f"DeSo Node Server Status\n"
+                info_body +=f"Total RAM memory: {mem.total / (1024 ** 3):.1f} GB\n"
+                info_body +=f"Used RAM memory: {mem.used / (1024 ** 3):.1f} GB\n"
+                info_body +=f"Available RAM memory: {mem.available / (1024 ** 3):.1f} GB\n"
+                info_body +=f"RAM Memory usage: {mem.percent}%\n"
+
+                print(info_body)
+
+                now = datetime.datetime.now()
+    
+                if now - last_run >= datetime.timedelta(hours=1):
+                    create_post(info_body,"")
+                    last_run = now
 
             for _ in range(NOTIFICATION_UPDATE_INTERVEL):
                 time.sleep(1)
@@ -441,4 +514,3 @@ def notificationListener():
 
 notificationListener()
 
-    
