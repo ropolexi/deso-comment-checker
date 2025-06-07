@@ -11,7 +11,7 @@ import datetime
 import re
 import psutil
 import logging
-logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.INFO)
+logging.basicConfig(format='%(levelname)s:[%(lineno)d]%(message)s', level=logging.DEBUG)
 
 REMOTE_API = False
 HAS_LOCAL_NODE_WITH_INDEXING = False
@@ -22,8 +22,8 @@ BASE_URL = "https://node.deso.org"
 seed_phrase_or_hex="" #dont share this
 NOTIFICATION_UPDATE_INTERVEL = 30 #in seconds
 
-api_url = BASE_URL+"/api/v0/"
-local_url= "http://localhost"+"/api/v0/"
+api_url = BASE_URL+"/api/"
+local_url= "http://localhost:17001"+"/api/"
 prof_resp="PublicKeyToProfileEntryResponse"
 tpkbc ="TransactorPublicKeyBase58Check"
 pkbc="PublicKeyBase58Check"
@@ -32,7 +32,8 @@ pkbc="PublicKeyBase58Check"
 stop_flag = True
 calculation_thread = None
 app_close=False
-
+nodes={}
+height=0
 if REMOTE_API:
     HAS_LOCAL_NODE_WITHOUT_INDEXING= False
     HAS_LOCAL_NODE_WITH_INDEXING = False
@@ -54,20 +55,21 @@ client = DeSoDexClient(
     node_url=BASE_URL
 )
 
-def api_get(endpoint, payload=None):
+
+def api_get(endpoint, payload=None,version=0):
     try:
         if REMOTE_API:
-            response = requests.post(api_url + endpoint, json=payload)
+            response = requests.post(api_url +"v"+str(version)+"/"+ endpoint, json=payload)
         else:
             if HAS_LOCAL_NODE_WITHOUT_INDEXING:
                 if endpoint=="get-notifications":
                     logging.debug("---Using remote node---")
-                    response = requests.post(api_url + endpoint, json=payload)
+                    response = requests.post(api_url +"v"+str(version)+"/"+ endpoint, json=payload)
                     logging.debug("--------End------------")
                 else:
-                    response = requests.post(local_url + endpoint, json=payload)
+                    response = requests.post(local_url +"v"+str(version)+"/"+ endpoint, json=payload)
             if HAS_LOCAL_NODE_WITH_INDEXING:
-                response = requests.post(local_url + endpoint, json=payload)
+                response = requests.post(local_url +"v"+str(version)+"/"+ endpoint, json=payload)
         
             
         response.raise_for_status()
@@ -75,7 +77,17 @@ def api_get(endpoint, payload=None):
     except Exception as e:
         logging.error(f"API Error: {e}")
         return None
+def node_info():
+    payload = {
+    }
+    data = api_get("node-info", payload,1)
+    return data
 
+def get_app_state():
+    payload = {
+    }
+    data = api_get("get-app-state", payload)
+    return data
 def get_single_profile(Username,PublicKeyBase58Check=""):
     payload = {
         "NoErrorOnMissing": False,
@@ -92,7 +104,29 @@ if bot_username is None:
     logging.error("Error,bot username can not get. exit")
     exit()
 
+if info:=get_app_state():
+    nodes=info["Nodes"]
+    height=info["BlockHeight"]
 
+def get_quote_reposts_for_post(PostHashHex,ReaderPublicKeyBase58Check):
+    payload = {
+        "Limit":50,
+        "Offset":0,
+        "PostHashHex": PostHashHex,
+        "ReaderPublicKeyBase58Check":ReaderPublicKeyBase58Check
+    }
+    data = api_get("get-quote-reposts-for-post", payload)
+    return data
+
+def get_reposts_for_post(PostHashHex,ReaderPublicKeyBase58Check):
+    payload = {
+        "Limit":50,
+        "Offset":0,
+        "PostHashHex": PostHashHex,
+        "ReaderPublicKeyBase58Check":ReaderPublicKeyBase58Check
+    }
+    data = api_get("get-reposts-for-post", payload)
+    return data
 
 def get_single_post(post_hash_hex, reader_public_key=None, fetch_parents=False, comment_offset=0, comment_limit=100, add_global_feed=False):
     payload = {
@@ -204,13 +238,63 @@ def parse_state(paragraph):
     logging.debug(result)
     return result
     
-def check_comment(transactor,postId,parent_post_list,comment,data_save,comment_level,notify=False):
+def check_comment(transactor,postId,parent_post_list,parent_post,comment,data_save,comment_level,notify=False):
+    logging.debug(f"Comment Level:{comment_level}")
+    if comment_level==0:
+        logging.debug(postId)
+        logging.debug("check for reposts")
+        if parent_post["RepostCount"]>0:
+            if result:=get_reposts_for_post(parent_post["PostHashHex"],transactor):
+                    logging.debug("Reposters:")
+                    for r in result["Reposters"]:
+                        #logging.debug(r)
+                        logging.debug(r["PublicKeyBase58Check"])
+                        parent_post_list[transactor][postId]["Reposters"] = parent_post_list[transactor][postId].get("Reposters",[])
+                        if r["PublicKeyBase58Check"] not in parent_post_list[transactor][postId]["Reposters"]:
+                            logging.info("+++New repost detected")
+                            parent_post_list[transactor][postId]["Reposters"].append(r["PublicKeyBase58Check"])
+                            data_save[0]=True
+        if parent_post["QuoteRepostCount"]>0:
+                if result:=get_quote_reposts_for_post(parent_post["PostHashHex"],transactor):
+                    logging.debug("Quote Reposters:")
+                    for r in result["QuoteReposts"]:
+                        logging.debug(r["PosterPublicKeyBase58Check"])
+                        logging.debug(r["PostHashHex"])
+                        parent_post_list[transactor][postId]["QuoteReposters"] = parent_post_list[transactor][postId].get("QuoteReposters",[])
+                        if r["PostHashHex"] not in parent_post_list[transactor][postId]["QuoteReposters"]:
+                            logging.info("+++New quote repost detected")
+                            parent_post_list[transactor][postId]["QuoteReposters"].append(r["PostHashHex"])
+                            data_save[0]=True
+                            thread_owner = parent_post["ProfileEntryResponse"]["Username"]
+                            thread_owner_id = parent_post["ProfileEntryResponse"]["PublicKeyBase58Check"]
+
+                            try: 
+                                url="https://diamondapp.com/posts/"
+                                trigger_post=get_single_post(postId, transactor)
+                                if "Node" in trigger_post["PostExtraData"]:
+                                    if node_id:=trigger_post["PostExtraData"]["Node"]:
+                                        url = nodes[node_id]["URL"]+"/posts/"
+                            except Exception as e:
+                                logging.error(e)   
+                            username = r["ProfileEntryResponse"]["Username"]
+                            if notify and transactor!=thread_owner_id and transactor!=username:
+                                
+                                post_body = f"{username} Quote Resposted {thread_owner}'s thread:\n{url}{r["PostHashHex"]}"
+                                create_post(post_body,postId)
+                                logging.debug(post_body)
+                            elif transactor==thread_owner_id:
+                                logging.info("Quote repost already handled by deso")
+
+
+
+
     if comment["CommentCount"]>0:   #this post/comment has no comments,exit
-        single_post_details=get_single_post(comment["PostHashHex"], transactor)
-        upper_user=single_post_details["ProfileEntryResponse"]["Username"]
-        upper_user_id=single_post_details["ProfileEntryResponse"]["PublicKeyBase58Check"]
         comment_level +=1
-        if comments := single_post_details["Comments"]:
+        #single_post_details=get_single_post(comment["PostHashHex"], transactor)
+        upper_user=comment["ProfileEntryResponse"]["Username"]
+        upper_user_id=comment["ProfileEntryResponse"]["PublicKeyBase58Check"]
+        
+        if comments := comment["Comments"]:
            
             for comment in comments:
                 username = comment["ProfileEntryResponse"]["Username"]
@@ -222,22 +306,36 @@ def check_comment(transactor,postId,parent_post_list,comment,data_save,comment_l
                     comment_id=comment["PostHashHex"] 
                     
                     if (username!=bot_username and commenter_id!=transactor and upper_user_id!=transactor) and notify:  #avoid same bot comment notification infinit loop
-                        logging.info(f"New comment detected")
-                        parent_post_link = parent_post_list[transactor][postId]["ParentPostHashHex"]
-                        p=get_single_post(parent_post_link, transactor)
-                        thread_owner = p["ProfileEntryResponse"]["Username"]
-                        mode = parent_post_list[transactor][postId].get("mode","basic")
-                        if mode == "basic":
-                            post_body = f"{username} commented on {thread_owner}'s thread:\nhttps://diamondapp.com/posts/{comment_id}"
-                        elif mode =="full":
-                            post_body=f"{username} commented on {thread_owner}'s thread:\nhttps://diamondapp.com/posts/{parent_post_link}\n\n{username} -> {upper_user}'s comment/post\n\nContent:\n{body}\n\nComment Link:\nhttps://diamondapp.com/posts/{comment_id}"
-                        
-                        modified_text = post_body.replace("@", "(@)")
-                        logging.debug(post_body)
-                        
-                        create_post(modified_text,postId)
-                        
-                        data_save = True
+                        try:
+                            logging.info(f"New comment detected")
+                            parent_post_link = parent_post_list[transactor][postId]["ParentPostHashHex"]
+                            
+                            mode = parent_post_list[transactor][postId].get("mode","basic")
+                            logging.debug("Getting node details of transactor")
+                            thread_owner = parent_post["ProfileEntryResponse"]["Username"]
+                            thread_owner_id = parent_post["ProfileEntryResponse"]["PublicKeyBase58Check"]
+                            try: 
+                                url="https://diamondapp.com/posts/"
+                                trigger_post=get_single_post(postId, transactor)
+                                if "Node" in trigger_post["PostExtraData"]:
+                                    if node_id:=trigger_post["PostExtraData"]["Node"]:
+                                        url = nodes[node_id]["URL"]+"/posts/"
+                            except Exception as e:
+                                logging.error(e)  
+                            logging.debug(url)
+                            if mode == "basic":
+                                post_body = f"{username} commented on {thread_owner}'s thread:\n{url}{comment_id}"
+                            elif mode =="full":
+                                post_body=f"{username} commented on {thread_owner}'s thread:\n{url}{parent_post_link}\n\n{username} -> {upper_user}'s comment/post\n\nContent:\n{body}\n\nComment Link:\n{url}{comment_id}"
+                            
+                            modified_text = post_body.replace("@", "(@)")
+                            logging.debug(post_body)
+                            
+                            create_post(modified_text,postId)
+                            
+                            data_save[0]=True
+                        except Exception as e:
+                            logging.error(e)
                     elif username==bot_username:
                         logging.debug("Avoiding my own comment trigger")
                     elif commenter_id==transactor or upper_user_id==transactor:
@@ -247,16 +345,17 @@ def check_comment(transactor,postId,parent_post_list,comment,data_save,comment_l
                     
                     if username!=bot_username:
                         parent_post_list[transactor][postId]["Comments"].append(comment["PostHashHex"])
-                        save_to_json(parent_post_list,"parentPostList.json")
+                        #save_to_json(parent_post_list,"parentPostList.json")
                     
                 logging.debug(f"[{comment_level}]Comment")
                 if postId!=comment["PostHashHex"] and username!=bot_username:
                     
-                    check_comment(transactor,postId,parent_post_list,comment,data_save,comment_level,notify)
+                    check_comment(transactor,postId,parent_post_list,parent_post,comment,data_save,comment_level,notify)
                 elif postId==comment["PostHashHex"]:
                     logging.debug("commentchecker on post skipping")
                 elif username==bot_username:
                     logging.debug("My own comments skipping")
+
 
 def notificationListener():
     counter=0
@@ -282,8 +381,8 @@ def notificationListener():
         try:
             
             currentIndex=-1
-            if result:=load_from_json("notificationLastIndex_thread.json"):
-                lastIndex=result["index"]
+            # if result:=load_from_json("notificationLastIndex_thread.json"):
+            #     lastIndex=result["index"]
             logging.debug(f"lastIndex:{lastIndex}")
 
             i=0
@@ -363,10 +462,11 @@ def notificationListener():
                                                     parent_post_list[transactor][postId]["mode"] = "basic"
                                                 else:
                                                     parent_post_list[transactor][postId]["mode"] = "full"
-                                                create_post("You have registered this thread with "+parent_post_list[transactor][postId]["mode"]+" option",postId)    
-                                                data_save = False
+                                                create_post("You have registered this thread with "+parent_post_list[transactor][postId]["mode"]+" option",postId) 
+                                                   
+                                                data_save= [False]
                                                 comment_level=0
-                                                check_comment(transactor,postId,parent_post_list,single_post_details,data_save,comment_level,notify=False)  
+                                                check_comment(transactor,postId,parent_post_list,single_post_details,single_post_details,data_save,comment_level,notify=False)  
                                             else:
                                                 logging.debug("Already registered")
                                                 create_post("Already registered",postId) 
@@ -375,9 +475,10 @@ def notificationListener():
                                                 for id in parent_post_list[transactor]:
                                                     if(parent_post_list[transactor][id]["ParentPostHashHex"]==parent_post_id):
                                                         logging.info("------Deleting thread notification------")
-                                                        del parent_post_list[transactor][id]
+                                                        
                                                         create_post("Deleted this post thread notification",postId) 
                                                         create_post("Deleted this post thread notification",id) 
+                                                        del parent_post_list[transactor][id]
                                                         break
                                             except Exception as e:
                                                 logging.error("Error deleting")
@@ -388,8 +489,12 @@ def notificationListener():
                                                 logging.info("------Deleting all "+username+" thread notification------")
                                                 for id in parent_post_list[transactor]:
                                                     create_post("Deleted this post thread notification",id) 
-                                                del parent_post_list[transactor]
+                                                    del parent_post_list[transactor][id]
+                                                    save_to_json(parent_post_list,"parentPostList.json")
+
                                                 create_post("Deleted all posts threads notification",postId) 
+                                                del parent_post_list[transactor]
+                                                
                                                 
                                             except Exception as e:
                                                 logging.error("Error deleting")
@@ -399,13 +504,24 @@ def notificationListener():
                                                 link_count=0
                                                 logging.info("------info thread notification------")
                                                 reply_body=username+" Registered Posts Threads\n\n"
+
+                                                p=get_single_post(postId, transactor)
+                            
+                                                if node_id:=p["PostExtraData"]["Node"]:
+                                                    if node_id in nodes:
+                                                        url = nodes[node_id]["URL"]+"/posts/"
+                                                    else:
+                                                        url="https://diamondapp.com/posts/"
+                                                else:
+                                                    url="https://diamondapp.com/posts/"
+                                                logging.debug(url)
                                                 if transactor in parent_post_list:
                                                     
                                                     for mentioned_posts in parent_post_list[transactor]:
                                                         r = get_single_post(parent_post_list[transactor][mentioned_posts]["ParentPostHashHex"], transactor)
                                                         thread_owner = r["ProfileEntryResponse"]["Username"]
                                                         link_count += 1
-                                                        reply_body += "["+str(link_count)+"] "+thread_owner+"\nhttps://diamondapp.com/posts/"+str(parent_post_list[transactor][mentioned_posts]["ParentPostHashHex"])+"\n"
+                                                        reply_body += "["+str(link_count)+"] "+thread_owner+"\n"+url+str(parent_post_list[transactor][mentioned_posts]["ParentPostHashHex"])+"\n"
                                                         
                                                     logging.debug(reply_body)
                                                 create_post(reply_body,postId)        
@@ -453,7 +569,7 @@ def notificationListener():
             if counter>=1:
                 counter=0
                 for transactor,userdata in parent_post_list.items():
-                    data_save = False
+                    data_save = [False]
                     comment_level=0
                     logging.debug(transactor)
                     for postId,data in userdata.items():
@@ -467,11 +583,11 @@ def notificationListener():
                         if single_post_details:=get_single_post(data["ParentPostHashHex"], transactor):
                             parent_post_list[transactor][postId]["Comments"]=parent_post_list[transactor][postId].get("Comments",[])
                             logging.debug("Checking comment->")
-                            check_comment(transactor,postId,parent_post_list,single_post_details,data_save,comment_level,notify=True)
+                            check_comment(transactor,postId,parent_post_list,single_post_details,single_post_details,data_save,comment_level,notify=True)
                                 
 
                             #pprint(comment)
-                    if data_save:
+                    if data_save[0]:
                         save_to_json(parent_post_list,"parentPostList.json")
                 logging.debug("End")
 
@@ -483,10 +599,14 @@ def notificationListener():
                 info_body +=f"Number of Posts Threads added: {threads}\n"
                 info_body +=f"Number of comments to scan: {posts_scan}\n\n"
                 info_body +=f"DeSo Node Server Status\n"
+                info_body +=f"Block Height: {height}\n"
                 info_body +=f"Total RAM memory: {mem.total / (1024 ** 3):.1f} GB\n"
                 info_body +=f"Used RAM memory: {mem.used / (1024 ** 3):.1f} GB\n"
                 info_body +=f"Available RAM memory: {mem.available / (1024 ** 3):.1f} GB\n"
                 info_body +=f"RAM Memory usage: {mem.percent}%\n"
+                # if info:=node_info():
+                #     pprint(info)
+                
 
                 logging.debug(info_body)
 
@@ -502,7 +622,7 @@ def notificationListener():
                     return
         except Exception as e:
             logging.error(e)
-            time.sleep(1)
+            time.sleep(100)
 
 
 notificationListener()
