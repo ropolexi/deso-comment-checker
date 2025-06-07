@@ -11,7 +11,7 @@ import datetime
 import re
 import psutil
 import logging
-logging.basicConfig(format='%(levelname)s:[%(lineno)d]%(message)s', level=logging.DEBUG)
+logging.basicConfig(format='%(levelname)s:[%(lineno)d]%(message)s', level=logging.INFO)
 
 REMOTE_API = False
 HAS_LOCAL_NODE_WITH_INDEXING = False
@@ -277,7 +277,8 @@ def check_comment(transactor,postId,parent_post_list,parent_post,comment,data_sa
                             except Exception as e:
                                 logging.error(e)   
                             username = r["ProfileEntryResponse"]["Username"]
-                            if notify and transactor!=thread_owner_id and transactor!=username:
+                            quote_reposter_id=r["ProfileEntryResponse"]["PublicKeyBase58Check"]
+                            if notify and transactor!=thread_owner_id and transactor!=quote_reposter_id:
                                 
                                 post_body = f"{username} Quote Resposted {thread_owner}'s thread:\n{url}{r["PostHashHex"]}"
                                 create_post(post_body,postId)
@@ -594,16 +595,16 @@ def notificationListener():
                 
 
                 mem = psutil.virtual_memory()
-                info_body="Comment Checker Service Status\n\n"
-                info_body +=f"Number of users registered: {users_count}\n"
-                info_body +=f"Number of Posts Threads added: {threads}\n"
-                info_body +=f"Number of comments to scan: {posts_scan}\n\n"
-                info_body +=f"DeSo Node Server Status\n"
-                info_body +=f"Block Height: {height}\n"
-                info_body +=f"Total RAM memory: {mem.total / (1024 ** 3):.1f} GB\n"
-                info_body +=f"Used RAM memory: {mem.used / (1024 ** 3):.1f} GB\n"
-                info_body +=f"Available RAM memory: {mem.available / (1024 ** 3):.1f} GB\n"
-                info_body +=f"RAM Memory usage: {mem.percent}%\n"
+                info_body="✍️ Comment Checker Service Status\n"
+                info_body +=f"-⭐ Number of users registered: {users_count}\n"
+                info_body +=f"-⭐ Number of Posts Threads added: {threads}\n"
+                info_body +=f"-⭐ Number of comments to scan: {posts_scan}\n\n"
+                info_body +=f"🖥️ DeSo Node Server Status\n"
+                info_body +=f"-✅ Block Height: {height}\n"
+                info_body +=f"-✅ Total RAM memory: {mem.total / (1024 ** 3):.1f} GB\n"
+                info_body +=f"-✅ Used RAM memory: {mem.used / (1024 ** 3):.1f} GB\n"
+                info_body +=f"-✅ Available RAM memory: {mem.available / (1024 ** 3):.1f} GB\n"
+                info_body +=f"-✅ RAM Memory usage: {mem.percent}%\n"
                 # if info:=node_info():
                 #     pprint(info)
                 
