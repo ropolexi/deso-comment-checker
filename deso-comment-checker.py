@@ -11,7 +11,7 @@ import datetime
 import re
 import psutil
 import logging
-logging.basicConfig(format='%(levelname)s:[%(lineno)d]%(message)s', level=logging.INFO)
+logging.basicConfig(format='%(asctime)s-%(levelname)s:[%(lineno)d]%(message)s', level=logging.INFO)
 
 REMOTE_API = False
 HAS_LOCAL_NODE_WITH_INDEXING = False
@@ -263,8 +263,6 @@ def check_comment(transactor,postId,parent_post_list,parent_post,comment,data_sa
                         parent_post_list[transactor][postId]["QuoteReposters"] = parent_post_list[transactor][postId].get("QuoteReposters",[])
                         if r["PostHashHex"] not in parent_post_list[transactor][postId]["QuoteReposters"]:
                             logging.info("+++New quote repost detected")
-                            parent_post_list[transactor][postId]["QuoteReposters"].append(r["PostHashHex"])
-                            data_save[0]=True
                             thread_owner = parent_post["ProfileEntryResponse"]["Username"]
                             thread_owner_id = parent_post["ProfileEntryResponse"]["PublicKeyBase58Check"]
 
@@ -281,10 +279,20 @@ def check_comment(transactor,postId,parent_post_list,parent_post,comment,data_sa
                             if notify and transactor!=thread_owner_id and transactor!=quote_reposter_id:
                                 
                                 post_body = f"{username} Quote Resposted {thread_owner}'s thread:\n{url}{r["PostHashHex"]}"
+                                parent_post_link = parent_post_list[transactor][postId]["ParentPostHashHex"]
+                                mode = parent_post_list[transactor][postId].get("mode","basic")
+                                body = r["Body"]
+                                if mode == "basic":
+                                    post_body = f"{username} Quote Resposted {thread_owner}'s thread:\n{url}{r["PostHashHex"]}"
+                                elif mode =="full":
+                                    post_body=f"{username} Quote Resposted {thread_owner}'s thread:\n{url}{parent_post_link}\n\n{username} -> {thread_owner}'s Post\n\nContent:\n{body}\n\nQuote Repost Link:\n{url}{r["PostHashHex"]}"
+                            
                                 create_post(post_body,postId)
                                 logging.debug(post_body)
                             elif transactor==thread_owner_id:
                                 logging.info("Quote repost already handled by deso")
+                            parent_post_list[transactor][postId]["QuoteReposters"].append(r["PostHashHex"])
+                            data_save[0]=True
 
 
 
@@ -319,6 +327,8 @@ def check_comment(transactor,postId,parent_post_list,parent_post,comment,data_sa
                                 url="https://diamondapp.com/posts/"
                                 trigger_post=get_single_post(postId, transactor)
                                 if "Node" in trigger_post["PostExtraData"]:
+                                    #logging.info(trigger_post["PostExtraData"])
+                                    #logging.info(nodes)
                                     if node_id:=trigger_post["PostExtraData"]["Node"]:
                                         url = nodes[node_id]["URL"]+"/posts/"
                             except Exception as e:
@@ -380,6 +390,7 @@ def notificationListener():
 
     while not app_close:
         try:
+            start_time = time.time()
             
             currentIndex=-1
             # if result:=load_from_json("notificationLastIndex_thread.json"):
@@ -567,6 +578,7 @@ def notificationListener():
             # Convert the past datetime object to a Unix timestamp.
             past_timestamp = time.mktime(past_datetime.timetuple())
 
+            end_time = time.time()
             if counter>=1:
                 counter=0
                 for transactor,userdata in parent_post_list.items():
@@ -592,21 +604,27 @@ def notificationListener():
                         save_to_json(parent_post_list,"parentPostList.json")
                 logging.debug("End")
 
+                if info:=get_app_state():
+                    nodes=info["Nodes"]
+                    height=info["BlockHeight"]
+
                 
 
                 mem = psutil.virtual_memory()
                 info_body="✍️ Comment Checker Service Status\n"
-                info_body +=f"-⭐ Number of users registered: {users_count}\n"
-                info_body +=f"-⭐ Number of Posts Threads added: {threads}\n"
-                info_body +=f"-⭐ Number of comments to scan: {posts_scan}\n\n"
+                info_body +=f"* Number of users registered: {users_count}\n"
+                info_body +=f"* Number of Posts Threads added: {threads}\n"
+                info_body +=f"* Number of comments to scan: {posts_scan}\n"
+                info_body +=f"* Comments Scan time: {end_time - start_time:.4f} seconds\n\n"
                 info_body +=f"🖥️ DeSo Node Server Status\n"
-                info_body +=f"-✅ Block Height: {height}\n"
-                info_body +=f"-✅ Total RAM memory: {mem.total / (1024 ** 3):.1f} GB\n"
-                info_body +=f"-✅ Used RAM memory: {mem.used / (1024 ** 3):.1f} GB\n"
-                info_body +=f"-✅ Available RAM memory: {mem.available / (1024 ** 3):.1f} GB\n"
-                info_body +=f"-✅ RAM Memory usage: {mem.percent}%\n"
+                info_body +=f"* Block Height: {height}\n"
+                info_body +=f"* Total RAM memory: {mem.total / (1024 ** 3):.1f} GB\n"
+                info_body +=f"* Used RAM memory: {mem.used / (1024 ** 3):.1f} GB\n"
+                info_body +=f"* Available RAM memory: {mem.available / (1024 ** 3):.1f} GB\n"
+                info_body +=f"* RAM Memory usage: {mem.percent}%\n"
                 # if info:=node_info():
                 #     pprint(info)
+                #print(f"Comments Scan time: {end_time - start_time:.4f} seconds")
                 
 
                 logging.debug(info_body)
