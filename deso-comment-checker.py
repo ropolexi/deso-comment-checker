@@ -17,6 +17,7 @@ REMOTE_API = False
 HAS_LOCAL_NODE_WITH_INDEXING = False
 HAS_LOCAL_NODE_WITHOUT_INDEXING = True
 
+
 BASE_URL = "https://node.deso.org"
 
 seed_phrase_or_hex="" #dont share this
@@ -52,7 +53,7 @@ client = DeSoDexClient(
     is_testnet=False,
     seed_phrase_or_hex=seed_phrase_or_hex,
     passphrase="",
-    node_url=BASE_URL
+    node_url=BASE_URL if REMOTE_API else "http://localhost:17001"
 )
 
 
