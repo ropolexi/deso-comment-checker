@@ -300,19 +300,23 @@ def check_comment(transactor,postId,parent_post_list,parent_post,comment,data_sa
 
     if comment["CommentCount"]>0:   #this post/comment has no comments,exit
         comment_level +=1
-        #single_post_details=get_single_post(comment["PostHashHex"], transactor)
+        single_post_details=get_single_post(comment["PostHashHex"], transactor)
+        
         upper_user=comment["ProfileEntryResponse"]["Username"]
+        logging.debug(f"upper_user:{upper_user}")
         upper_user_id=comment["ProfileEntryResponse"]["PublicKeyBase58Check"]
         
-        if comments := comment["Comments"]:
-           
+        if comments := single_post_details["Comments"]:
+            
             for comment in comments:
                 username = comment["ProfileEntryResponse"]["Username"]
+                logging.debug(f"username:{username}")
                 commenter_id=comment["ProfileEntryResponse"]["PublicKeyBase58Check"]
 
                 if comment["PostHashHex"] not in parent_post_list[transactor][postId]["Comments"]:
                     
                     body=comment["Body"]
+                    logging.debug(f"body:{body}")
                     comment_id=comment["PostHashHex"] 
                     
                     if (username!=bot_username and commenter_id!=transactor and upper_user_id!=transactor) and notify:  #avoid same bot comment notification infinit loop
@@ -357,17 +361,23 @@ def check_comment(transactor,postId,parent_post_list,parent_post,comment,data_sa
                     
                     if username!=bot_username:
                         parent_post_list[transactor][postId]["Comments"].append(comment["PostHashHex"])
+                        data_save[0]=True
                         #save_to_json(parent_post_list,"parentPostList.json")
                     
                 logging.debug(f"[{comment_level}]Comment")
                 if postId!=comment["PostHashHex"] and username!=bot_username:
-                    
+                    logging.debug("Going inside comment")
+                    logging.debug(f"transactor:{transactor},postId:{postId},parent_post:{parent_post["PostHashHex"]},comment:{comment["PostHashHex"]},comment_level:{comment_level},notify:{notify}")
                     check_comment(transactor,postId,parent_post_list,parent_post,comment,data_save,comment_level,notify)
                 elif postId==comment["PostHashHex"]:
                     logging.debug("commentchecker on post skipping")
                 elif username==bot_username:
                     logging.debug("My own comments skipping")
-
+        else:
+            logging.debug("NO MORE COMMENTS IF")
+            logging.debug(comment["Comments"])
+    else:
+        logging.debug("NO MORE COMMENTS")
 
 def notificationListener():
     counter=0
