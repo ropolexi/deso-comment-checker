@@ -279,16 +279,17 @@ def check_comment(transactor,postId,parent_post_list,parent_post,comment,data_sa
                             quote_reposter_id=r["ProfileEntryResponse"]["PublicKeyBase58Check"]
                             if notify and transactor!=thread_owner_id and transactor!=quote_reposter_id:
                                 
-                                post_body = f"{username} Quote Resposted {thread_owner}'s thread:\n{url}{r["PostHashHex"]}"
+                                #post_body = f"{username} Quote Resposted {thread_owner}'s thread:\n{url}{r["PostHashHex"]}"
                                 parent_post_link = parent_post_list[transactor][postId]["ParentPostHashHex"]
                                 mode = parent_post_list[transactor][postId].get("mode","basic")
                                 body = r["Body"]
                                 if mode == "basic":
-                                    post_body = f"{username} Quote Resposted {thread_owner}'s thread:\n{url}{r["PostHashHex"]}"
+                                    post_body=""
+                                    #post_body = f"{username} Quote Resposted {thread_owner}'s thread:\n{url}{r["PostHashHex"]}"
                                 elif mode =="full":
                                     post_body=f"{username} Quote Resposted {thread_owner}'s thread:\n{url}{parent_post_link}\n\n{username} -> {thread_owner}'s Post\n\nContent:\n{body}\n\nQuote Repost Link:\n{url}{r["PostHashHex"]}"
-                            
-                                create_post(post_body,postId)
+                                if len(post_body)>0:
+                                    create_post(post_body,postId)
                                 logging.debug(post_body)
                             elif transactor==thread_owner_id:
                                 logging.info("Quote repost already handled by deso")
@@ -473,6 +474,7 @@ def notificationListener():
                                             if transactor in parent_post_list:
                                                 for mentioned_post in parent_post_list[transactor]:
                                                     if parent_post_list[transactor][mentioned_post]["ParentPostHashHex"]==parent_post_id:
+                                                        old_mentioned_post = mentioned_post
                                                         present=True
                                             if not present:
                                                 parent_post_list[transactor] = parent_post_list.get(transactor,{})
@@ -492,7 +494,15 @@ def notificationListener():
                                                 check_comment(transactor,postId,parent_post_list,single_post_details,single_post_details,data_save,comment_level,notify=False)  
                                             else:
                                                 logging.debug("Already registered")
-                                                create_post("Already registered",postId) 
+                                                if status!=parent_post_list[transactor][old_mentioned_post]["mode"]:
+                                            
+                                                    if status=="basic":
+                                                        parent_post_list[transactor][old_mentioned_post]["mode"] = "basic"
+                                                    else:
+                                                        parent_post_list[transactor][old_mentioned_post]["mode"] = "full"
+                                                    create_post("You have modified this thread to "+parent_post_list[transactor][old_mentioned_post]["mode"]+" option",postId)
+                                                else:        
+                                                    create_post("Already registered",postId) 
                                         elif status=="off":
                                             try:
                                                 for id in parent_post_list[transactor]:
@@ -643,7 +653,7 @@ def notificationListener():
                 now = datetime.datetime.now()
     
                 if now - last_run >= datetime.timedelta(hours=1):
-                    create_post(info_body,"")
+                    #create_post(info_body,"")
                     last_run = now
 
             for _ in range(NOTIFICATION_UPDATE_INTERVEL):
