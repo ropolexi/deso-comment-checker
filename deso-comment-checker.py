@@ -567,7 +567,7 @@ def notificationListener():
                                     save_to_json(parent_post_list,"parentPostList.json")
                                    
                                     break
-                if notification["Index"]<20: #end of mentions
+                if currentIndex<20: #end of mentions
                     logging.debug("End of mentions")
                     break 
                 if currentIndex<=lastIndex:
@@ -653,7 +653,7 @@ def notificationListener():
                 now = datetime.datetime.now()
     
                 if now - last_run >= datetime.timedelta(hours=1):
-                    #create_post(info_body,"")
+                    create_post(info_body,"")
                     last_run = now
 
             for _ in range(NOTIFICATION_UPDATE_INTERVEL):
