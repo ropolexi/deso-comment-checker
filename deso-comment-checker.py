@@ -165,7 +165,7 @@ def create_post(body,parent_post_hash_hex):
             title="",
             image_urls=[],
             video_urls=[],
-            post_extra_data={"Node": "1"},
+            post_extra_data={"Node": "1","is_bot":"true"},
             min_fee_rate_nanos_per_kb=1000,
             is_hidden=False,
             in_tutorial=False
